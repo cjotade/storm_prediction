@@ -13,7 +13,6 @@ import scikitplot as skplt
 import graphviz
 import pydotplus
 from itertools import *
-import time
 
 
 __author__ = "Camilo Jara Do Nascimento"
@@ -50,13 +49,14 @@ def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,n_jobs=1, tra
     plt.legend(loc="best")
     return plt
 
-def normalize(data,min_,max_):
-    data1 = (data - min_) / (max_-min_)
-    return data1
+def normalize(Y_train):
+    y_values = Y_train.values
+    min_max_scaler = preprocessing.MinMaxScaler()
+    x_scaled = min_max_scaler.fit_transform(y_values)
+    Y_train1 = pd.DataFrame(x_scaled,index=Y_train.index)
+    Y_train1.columns = Y_train.columns.values
+    return Y_train1
 
-def denormalize(data_norm,min_,max_):
-    y1 = data_norm*(max_.values-min_.values)+min_.values
-    return y1
 
 def compose_date(years, months=1, days=1, weeks=None, hours=None, minutes=None,
                  seconds=None, milliseconds=None, microseconds=None, nanoseconds=None):
@@ -76,21 +76,19 @@ def compose_date(years, months=1, days=1, weeks=None, hours=None, minutes=None,
 ### Change split_percent to select the percent of train data, the rest is for test (used at 109 row)
 ### Change step_hours to select the slide step (used at 109 row)
 
-################# MAKE THE CHANGES YOU WANT ###################
+######## MAKE THE CHANGES YOU WANT ############
 
-fromdate = "1963-1-1 01"
+fromdate = "1963-10-1 01"
 todate = "" 
 #todate = "2017-1-1 01"
 
-columns = ["DST_Index"] 
-#columns = ["DST_Index","Electric_field","Bz_GSM","Flow_Pressure"]
+#columns = ["DST_Index"] 
+columns = ["DST_Index","Electric_field","Bz_GSM","Flow_Pressure"]
 
 split_percent = 0.6
-step_hours = 1
+step_hours = 10
 
-norm = False
-
-################################################################
+###############################################
 
 ###   Read OMNI dataset
 df = pd.read_csv("./omni2_all_years.dat",sep="\s+", header=None, skiprows=1) #spdf.gsfc.nasa.gov/pub/data/omni/low_res_omni/
@@ -107,8 +105,6 @@ df.columns = ["Year","Day","Hour","Bartels_rotation","ID_IMF" ,"ID_SW_plasma",
             "Solar_Lyman"]
 df.index = compose_date(df['Year'], days=df['Day'],hours=df['Hour'])
 
-### Clean data
-df = df.drop(df[(df["DST_Index"] == 99999) | (df["Electric_field"] == 999.99) | (df["Bz_GSM"] == 999.9) | (df["Flow_Pressure"] == 99.99)].index)
 
 ###  Select dates to model
 if not todate:
@@ -125,7 +121,7 @@ x_train = df_var.iloc[0:int(df_var.shape[0]*split_percent)-2*step_hours:step_hou
 y_train = pd.DataFrame(df_var.loc[:,columns[0]].iloc[step_hours:int(df_var.shape[0]*split_percent)-1*step_hours:step_hours])
 x_test = df_var.iloc[int(df_var.shape[0]*split_percent)-1*step_hours:df_var.shape[0]-2*step_hours:step_hours]
 y_test = pd.DataFrame(df_var.loc[:,columns[0]].iloc[int(df_var.shape[0]*split_percent):df_var.shape[0]-1*step_hours:step_hours])
-"""
+
 mean_x = x_train.mean(axis=0)
 std_x = x_train.std(axis=0)
 x_train = (x_train - mean_x) / std_x
@@ -135,23 +131,17 @@ mean_y = y_train.mean(axis=0)
 std_y = y_train.std(axis=0)
 y_train = (y_train - mean_y) / std_y
 y_test = (y_test - mean_y) / std_y
-
 """
-if norm:
-    max_x = x_train.max(axis=0)
-    min_x = x_train.min(axis=0)
-    x_train = (x_train - min_x) / (max_x-min_x)
-    x_test = (x_test - min_x) / (max_x-min_x)
-    #x_train = normalize(x_train,min_x,max_x)
-    #x_test = normalize(x_test,min_x,max_x)
+max_x = x_train.max(axis=0)
+min_x = x_train.min(axis=0)
+x_train1 = (x_train - min_x) / (max_x-min_x)
+x_test1 = (x_test - min_x) / (max_x-min_x)
 
-    max_y = y_train.max(axis=0)
-    min_y = y_train.min(axis=0)
-    y_train = (y_train - min_y) / (max_y-min_y)
-    y_test = (y_test - min_y) / (max_y-min_y)
-    #y_train = normalize(y_train,min_y,max_y)
-    #y_test = normalize(y_test,min_y,max_y)
-
+max_y = y_train.max(axis=0)
+min_y = y_train.min(axis=0)
+y_train = (y_train - min_y) / (max_y-min_y)
+y_test = (y_test - min_y) / (max_y-min_y)
+"""
 
 
 ###   If you want a default splitting uncomment the following lines
@@ -203,7 +193,6 @@ ax1.legend()
 
 plt.show()
 
-fig = plt.figure()
 pd.DataFrame(nn.loss_curve_).plot()
 plt.show()
 
@@ -212,138 +201,96 @@ plt.show()
 #grafico = plot_learning_curve(nn, title, x_test, y_test, cv=10)
 #plt.show()
 """
-######################### Import stuff ##########################
+######################### import stuff ##########################
 import tensorflow as tf
 
-######################## Set learning variables ##################
+######################## prepare the data ########################
+#X, y = load_linnerud(return_X_y=True)
+#X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, shuffle=False)
+
+######################## set learning variables ##################
 learning_rate = 0.0005 #0.0005
-epochs = 100
+epochs = 500
 batch_size = 100
-#n_hidden_1 = 1000
+n_hidden_1 = 100
 
-######################## Set some variables #######################
-x = tf.placeholder(tf.float32, [None, x_train.shape[1]], name='x')  # features
-y = tf.placeholder(tf.float32, [None, 1], name='y')  # 1 output
+######################## set some variables #######################
+x = tf.placeholder(tf.float32, [None, 4], name='x')  # 3 features
+y = tf.placeholder(tf.float32, [None, 1], name='y')  # 3 outputs
 
-def kezhNet(input_data):
-    with tf.name_scope('kezhNet'):
-        with tf.name_scope('hidden_1'):
-            #bn1_1 = tf.layers.batch_normalization(input_data)
-            bn1_1 = input_data
-            fc1 = tf.layers.dense(inputs=bn1_1,units=100)
-            act_fc1 = tf.nn.relu(fc1)
+# hidden layer 1
+W1 = tf.Variable(tf.truncated_normal([4, n_hidden_1], stddev=0.03), name='W1')
+b1 = tf.Variable(tf.truncated_normal([n_hidden_1]), name='b1')
 
-        with tf.name_scope('hidden_2'):
-            #bn1_2 = tf.layers.batch_normalization(act_fc1)
-            bn1_2 = act_fc1
-            fc2 = tf.layers.dense(inputs=bn1_2,units=25)
-            act_fc2 = tf.nn.relu(fc2)
-        """
-        with tf.name_scope('hidden_3'):
-            #bn1_3 = tf.layers.batch_normalization(act_fc2)
-            bn1_3 = act_fc2
-            fc3 = tf.layers.dense(inputs=bn1_3,units=25)
-            act_fc3 = tf.nn.relu(fc3)
-            
-        with tf.name_scope('hidden_4'):
-            #bn1_4 = tf.layers.batch_normalization(act_fc3)
-            bn1_4 = act_fc3
-            fc4 = tf.layers.dense(inputs=bn1_4,units=200)
-            act_fc4 = tf.nn.relu(fc4)
-        with tf.name_scope('hidden_5'):
-            #bn1_5 = tf.layers.batch_normalization(act_fc4)
-            bn1_5 = act_fc4
-            fc5 = tf.layers.dense(inputs=bn1_5,units=100)
-            act_fc5 = tf.nn.relu(fc5)
-            """
-        with tf.name_scope('output'):
-            #bn1_out = tf.layers.batch_normalization(act_fc5)
-            bn1_out = act_fc2
-            fc_out = tf.layers.dense(inputs=bn1_out,units=1)
-    return fc_out
+# hidden layer 2
+W2 = tf.Variable(tf.truncated_normal([n_hidden_1, 1], stddev=0.03), name='W2')
+b2 = tf.Variable(tf.truncated_normal([1]), name='b2')
 
-####################### Prediction  #########################
-y_ = kezhNet(x)
+######################## Activations, outputs ######################
+# output hidden layer 1
+hidden_out = tf.nn.relu(tf.add(tf.matmul(x, W1), b1))
+
+# total output
+y_ = tf.nn.relu(tf.add(tf.matmul(hidden_out, W2), b2))
 
 ####################### Loss Function  #########################
 mse = tf.losses.mean_squared_error(y, y_)
 
-####################### Optimizer  #########################
-#optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(mse)
-optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(mse)
+####################### Optimizer      #########################
+optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(mse)
 
-###################### Initialize and Run #################
-# Initialize variables
+###################### Initialize, Accuracy and Run #################
+# initialize variables
 init_op = tf.global_variables_initializer()
 
-train_loss = []
-epoch_time = []
-# Run
+# accuracy for the test set
+accuracy = tf.reduce_mean(tf.square(tf.subtract(y, y_)))  # or could use tf.losses.mean_squared_error
+
+prediction = tf.add(tf.matmul(hidden_out, W2), b2)
+
+label_value = []
+estimate = []
+# run
 with tf.Session() as sess:
     sess.run(init_op)
-    t = time.clock()
     total_batch = int(len(y_train) / batch_size)
-    print("Start Training...")
     for epoch in range(epochs):
         avg_cost = 0
-        epoch_loss = []
-        t_epoch = time.clock()
         for i in range(total_batch):
             batch_x  = x_train.values[i * batch_size:min(i * batch_size + batch_size, len(x_train)), :]
             batch_y = y_train.values[i * batch_size:min(i * batch_size + batch_size, len(y_train)), :]
-            _, l = sess.run([optimizer, mse], feed_dict={x: batch_x, y: batch_y})
-            epoch_loss.append(l)
-        if epoch % 10 == 0:
-            elapsed_time = time.clock() - t_epoch
-            epoch_time.append(elapsed_time)
-            avg_loss = np.mean(epoch_loss)
-            train_loss.append(avg_loss)
-            print("Epoch: {} | Loss: {:.3f} | Elapsed Time: {:.2f} minutes".format(epoch + 1, avg_loss, elapsed_time / 60))
-    print("Training Finished! Elapsed Time: {:.2f} minutes".format((time.clock() - t) / 60))
-    pred_f = sess.run(y_, feed_dict={x: x_test})
-    df_pred = pd.DataFrame(pred_f,index=y_test.index.values,columns=["DST_Index"])    
-    if norm:
-        #y_test_final = std_y.values*y_test+mean_y.values
-        y_test_final = y_test*(max_y.values-min_y.values)+min_y.values
+            _, c, pred = sess.run([optimizer, mse, prediction], feed_dict={x: batch_x, y: batch_y})
+            avg_cost += c / total_batch
 
-        #df_predic_final = std_y.values*df_pred+mean_y.values
-        df_pred_final = df_pred*(max_y.values-min_y.values)+min_y.values
-    else:
-        y_test_final = y_test
-        df_pred_final = df_pred
-        
-    # Prediction
-    pred_fig = plt.figure()
-    pred_title = 'Prediction '+str(step_hours)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'
-    plt.plot(y_test_final,label="Original Data")
-    plt.plot(df_pred_final,label="Predicted Data")
+            label_value.append(batch_y)
+            estimate.append(pred)
+        #print('dsa')
+        if epoch % 10 == 0:
+            print('Epoch:', (epoch + 1), 'cost =', '{:.3f}'.format(avg_cost))
+            for i in range(3):
+                print ("label value:", batch_y[i], \
+                    "estimated value:", pred[i])
+    #print(sess.run(mse, feed_dict={x: x_test, y: y_test}))
+    pred_f = sess.run(prediction, feed_dict={x:x_test})
+
+    y_test1 = std_y.values*y_test+mean_y.values
+    #y_test1 = y_test*(max_y.values-min_y.values)+min_y.values
+
+    df_pred = pd.DataFrame(pred_f,index=y_test.index.values,columns=["DST Index"])
+    df_predic = std_y.values*df_pred+mean_y.values
+    #df_predic = df_pred*(max_y.values-min_y.values)+min_y.values
+
+    #plt.plot(x_train["DST_Index"],label="Train data")
+    plt.plot(y_test1,label="Original Data")
+    plt.plot(df_predic,label="Predicted Data")
     plt.xlabel('Time')
     plt.ylabel('DST Index')
-    plt.title(pred_title)
+    plt.title('Prediction '+str(step_hours)+'-step ahead of DST Index with MLPRegressor using ' + ', '.join(columns) + ' as variables')
     plt.legend()
-    pred_fig.savefig("./results/plots/"+pred_title+".png", bbox_inches='tight')
-
-    # Train Loss
-    loss_fig = plt.figure()
-    loss_title = 'Model Train Loss '+str(step_hours)+'-step ahead using ' + ', '.join(columns) + ' as variables'
-    plt.plot(range(1, len(train_loss) + 1), train_loss)
-    plt.title(loss_title)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend(['kezhNet'])
-    loss_fig.savefig("./results/plots/"+loss_title+".png", bbox_inches='tight')
-
-    # Error Histogram
-    hist_fig, ax = plt.subplots()
-    error = abs(df_pred_final - y_test_final)
-    error.hist(bins=50,ax=ax)
-    hist_title = 'Distribution Error '+str(step_hours)+'-step ahead using ' + ', '.join(columns) + ' as variables'
-    plt.title(hist_title)
-    plt.xlabel("Prediction Error")
-    plt.ylabel("Count")
-    plt.xlim(0,80)
-    hist_fig.savefig("./results/plots/"+hist_title+".png", bbox_inches='tight')
     plt.show()
+
+
+
 
 """
 #================ KERAS MODEL =======================
