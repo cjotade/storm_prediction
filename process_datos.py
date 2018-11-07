@@ -57,7 +57,7 @@ step_hours = 1
 
 number_regressor = 3
 
-norm = True
+norm = False
 
 ##################################################################
 #################                                #################            
@@ -149,16 +149,16 @@ print("Cleaning dataset and transform to numpy array...")
 [x_train, x_test, y_train, y_test] = clean_and_convert(df_x_train,df_x_test,df_y_train,df_y_test)
 
 def normalize_dataset(norm,x_train, x_test, y_train, y_test):
+    max_x = x_train.max(axis=0)
+    min_x = x_train.min(axis=0)
+    max_y = y_train.max(axis=0)
+    min_y = y_train.min(axis=0)
     if norm:
-        max_x = x_train.max(axis=0)
-        min_x = x_train.min(axis=0)
         x_train = (x_train - min_x) / (max_x-min_x)
         x_test = (x_test - min_x) / (max_x-min_x)
         #x_train = normalize(x_train,min_x,max_x)
         #x_test = normalize(x_test,min_x,max_x)
-
-        max_y = y_train.max(axis=0)
-        min_y = y_train.min(axis=0)
+        
         y_train = (y_train - min_y) / (max_y-min_y)
         y_test = (y_test - min_y) / (max_y-min_y)
         #y_train = normalize(y_train,min_y,max_y)
@@ -174,7 +174,7 @@ def normalize_dataset(norm,x_train, x_test, y_train, y_test):
         y_train = (y_train - mean_y) / std_y
         y_test = (y_test - mean_y) / std_y
         """
-    return x_train, x_test, y_train, y_test,max_x,min_x,max_y,min_y
+    return x_train, x_test, y_train, y_test, max_x, min_x, max_y, min_y
 
 print("Normalizing dataset...")
 [x_train, x_test, y_train, y_test, max_x, min_x, max_y, min_y] = normalize_dataset(norm, x_train, x_test, y_train, y_test)
@@ -244,8 +244,8 @@ import tensorflow as tf
 
 ######################## Set learning variables ##################
 learning_rate = 0.0005 #0.0005
-epochs = 100
-batch_size = 10000
+epochs = 500
+#batch_size = 10000
 #n_hidden_1 = 1000
 
 ######################## Set some variables #######################
@@ -316,8 +316,6 @@ with tf.Session() as sess:
         avg_cost = 0
         epoch_loss = []
         t_epoch = time.clock()
-        #while True:
-        #    try:
         #for i in range(total_batch):
             #batch_x  = x_train[i * batch_size:min(i * batch_size + batch_size, len(x_train)), :]
             #batch_y = y_train[i * batch_size:min(i * batch_size + batch_size, len(y_train)), :]
@@ -325,7 +323,6 @@ with tf.Session() as sess:
         _, l = sess.run([optimizer, mse],feed_dict={x: x_train, y: y_train})
         epoch_loss.append(l)
         if epoch % 10 == 0:
-            #except tf.errors.OutOfRangeError:
             elapsed_time = time.clock() - t_epoch
             epoch_time.append(elapsed_time)
             avg_loss = np.mean(epoch_loss)
@@ -335,16 +332,17 @@ with tf.Session() as sess:
     pred = sess.run(y_, feed_dict={x: x_test})
     
     df_pred = pd.DataFrame(pred,index=df_y_test.index.values,columns=["DST_Index"])    
-    #df_y_test_final = pd.DataFrame(y_test,index=df_y_test.index.values,columns=["DST_Index"])    
+    
+    ### Denormalize
     if norm:
-        #y_test_final = std_y.values*y_test+mean_y.values
-        #y_test_final = y_test*(max_y-min_y)+min_y
         #df_pred_final = std_y.values*df_pred+mean_y.values
         df_pred_final = df_pred*(max_y-min_y)+min_y
     else:
-        #y_test_final = y_test
         df_pred_final = df_pred
-        
+           
+    error = abs(df_pred_final - df_y_test)
+    acc = np.mean((df_pred.values-y_test)**2)
+    acc_denorm = np.mean((error)**2)
     # Prediction
     pred_fig = plt.figure()
     pred_title = 'Prediction '+str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'
@@ -368,14 +366,39 @@ with tf.Session() as sess:
 
     # Error Histogram
     hist_fig, ax = plt.subplots()
-    error = abs(df_pred_final - df_y_test)
     error.hist(bins=50,ax=ax)
     hist_title = 'Distribution Error '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
     plt.title(hist_title)
     plt.xlabel("Prediction Error")
     plt.ylabel("Count")
-    plt.xlim(0,80)
+    plt.xlim(0,np.max(error).values)
     hist_fig.savefig("./results/plots/"+hist_title+".png", bbox_inches='tight')
+
+    # Error on time
+    error_fig, ax = plt.subplots()
+    plt.plot(error,label="Error")
+    error_title = 'Error on time '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    plt.title(error_title)
+    plt.xlabel("Time")
+    plt.ylabel("Error")
+    error_fig.savefig("./results/plots/"+error_title+".png", bbox_inches='tight')
+
+    """ 
+    error_2 = error**2
+    error_acum = []
+    for i in range(1,len(error)):
+        error_acum.append(1/(i+1)*np.sum(error.iloc[0:i]))
+    df_error_acum = pd.DataFrame([error_acum],index=error.index.values)
+    error_acum_fig, ax = plt.subplots()
+    plt.plot(error,label="Cumulative Error")
+    error_title = 'Cumulative error on time '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    plt.title(error_title)
+    plt.xlabel("Time")
+    plt.ylabel("Cumulative Error")
+    error_acum_fig.savefig("./results/plots/"+error_title+".png", bbox_inches='tight')
+    """
+    print("Accuracy Test (MSE): ", acc,acc_denorm.values[0])
+
     plt.show()
 
 """
