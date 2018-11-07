@@ -22,42 +22,6 @@ __email__ = "camilo.jara@ug.uchile.cl"
 
 # ===================================== METHODS ================================================
 
-def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,n_jobs=1, train_sizes=np.linspace(.1, 1.0, 5)):
-    plt.figure()
-    plt.title(title)
-    if ylim is not None:
-        plt.ylim(*ylim)
-    plt.xlabel("Training examples")
-    plt.ylabel("Score")
-    train_sizes, train_scores, test_scores = learning_curve(
-        estimator, X, y, cv=cv, n_jobs=n_jobs, train_sizes=train_sizes)
-    train_scores_mean = np.mean(train_scores, axis=1)
-    train_scores_std = np.std(train_scores, axis=1)
-    test_scores_mean = np.mean(test_scores, axis=1)
-    test_scores_std = np.std(test_scores, axis=1)
-    plt.grid()
-
-    plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
-                     train_scores_mean + train_scores_std, alpha=0.1,
-                     color="r")
-    plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
-                     test_scores_mean + test_scores_std, alpha=0.1, color="g")
-    plt.plot(train_sizes, train_scores_mean, 'o-', color="r",
-             label="Training score")
-    plt.plot(train_sizes, test_scores_mean, 'o-', color="g",
-             label="Cross-validation score")
-
-    plt.legend(loc="best")
-    return plt
-
-def normalize(data,min_,max_):
-    data1 = (data - min_) / (max_-min_)
-    return data1
-
-def denormalize(data_norm,min_,max_):
-    y1 = data_norm*(max_.values-min_.values)+min_.values
-    return y1
-
 def compose_date(years, months=1, days=1, weeks=None, hours=None, minutes=None,
                  seconds=None, milliseconds=None, microseconds=None, nanoseconds=None):
     years = np.asarray(years) - 1970
@@ -75,6 +39,8 @@ def compose_date(years, months=1, days=1, weeks=None, hours=None, minutes=None,
 ### Change columns to select variables you want to train (used at 106 and 109 rows)
 ### Change split_percent to select the percent of train data, the rest is for test (used at 109 row)
 ### Change step_hours to select the slide step (used at 109 row)
+### Change number_regressor to select the step-ahead (used at 142 row)
+### Change norm to True to use min_max normalization
 
 ################# MAKE THE CHANGES YOU WANT ###################
 
@@ -82,76 +48,137 @@ fromdate = "1963-1-1 01"
 todate = "" 
 #todate = "2017-1-1 01"
 
-columns = ["DST_Index"] 
-#columns = ["DST_Index","Electric_field","Bz_GSM","Flow_Pressure"]
+#columns = ["DST_Index"] 
+columns = ["DST_Index","Electric_field","Bz_GSM","Flow_Pressure"]
 
 split_percent = 0.6
+
 step_hours = 1
 
-norm = False
+number_regressor = 3
 
-################################################################
+norm = True
 
-###   Read OMNI dataset
-df = pd.read_csv("./omni2_all_years.dat",sep="\s+", header=None, skiprows=1) #spdf.gsfc.nasa.gov/pub/data/omni/low_res_omni/
-df.columns = ["Year","Day","Hour","Bartels_rotation","ID_IMF" ,"ID_SW_plasma",
-            "points_IMF_avg","points_plasma_avg","|B|_avg","Mag_avg_Field", 
-            "Lat.ang_Field", "Long.ang_Field","Bx_GSE_GSM","By_GSE","Bz_GSE", 
-            "By_GSM", "Bz_GSM" ,"sigma|B|", "sigma_B", "sigma_Bx", "sigma_By",
-            "sigma_Bz","Proton_T","Proton_Density","Plasma_flow_speed",
-            "Plasma_flow_long.ang", "Plasma_flow_lat.ang","Na/Np","Flow_Pressure",
-            "sigma_T","sigma_N","sigma_V","sigma_phi_V","sigma_theta_V","sigma-Na/Np",
-            "Electric_field","Plasma_beta","alfven_mach_number", "Kp", "R","DST_Index",
-            "AE-index","Proton_flux","Proton_flux","Proton_flux","Proton_flux",
-            "Proton_flux","Proton_flux","Flag(***)","","","","","","magnetosonic_mach",
-            "Solar_Lyman"]
-df.index = compose_date(df['Year'], days=df['Day'],hours=df['Hour'])
+##################################################################
+#################                                #################            
+#################               CODE             #################
+#################                                #################
+##################################################################
 
-### Clean data
-df = df.drop(df[(df["DST_Index"] == 99999) | (df["Electric_field"] == 999.99) | (df["Bz_GSM"] == 999.9) | (df["Flow_Pressure"] == 99.99)].index)
+def read_and_split(fromdate,todate,columns,split_percent,step_hours):
+    ###   Read OMNI dataset
+    df = pd.read_csv("./omni2_all_years.dat",sep="\s+", header=None, skiprows=1) #spdf.gsfc.nasa.gov/pub/data/omni/low_res_omni/
+    df.columns = ["Year","Day","Hour","Bartels_rotation","ID_IMF" ,"ID_SW_plasma",
+                "points_IMF_avg","points_plasma_avg","|B|_avg","Mag_avg_Field", 
+                "Lat.ang_Field", "Long.ang_Field","Bx_GSE_GSM","By_GSE","Bz_GSE", 
+                "By_GSM", "Bz_GSM" ,"sigma|B|", "sigma_B", "sigma_Bx", "sigma_By",
+                "sigma_Bz","Proton_T","Proton_Density","Plasma_flow_speed",
+                "Plasma_flow_long.ang", "Plasma_flow_lat.ang","Na/Np","Flow_Pressure",
+                "sigma_T","sigma_N","sigma_V","sigma_phi_V","sigma_theta_V","sigma-Na/Np",
+                "Electric_field","Plasma_beta","alfven_mach_number", "Kp", "R","DST_Index",
+                "AE-index","Proton_flux","Proton_flux","Proton_flux","Proton_flux",
+                "Proton_flux","Proton_flux","Flag(***)","","","","","","magnetosonic_mach",
+                "Solar_Lyman"]
+    df.index = compose_date(df['Year'], days=df['Day'],hours=df['Hour'])
 
-###  Select dates to model
-if not todate:
-    mask = df.index >= fromdate
-else:
-    mask = (df.index >= fromdate) & (df.index < todate)
-df_date = df.loc[mask]
+    ### Clean data
+    df = df.drop(df[(df["DST_Index"] == 99999) | (df["Electric_field"] == 999.99) | (df["Bz_GSM"] == 999.9) | (df["Flow_Pressure"] == 99.99)].index)
 
-###  Select variables to model
-df_var = df_date.loc[:,columns] 
+    ###  Select dates to model
+    if not todate:
+        mask = df.index >= fromdate
+    else:
+        mask = (df.index >= fromdate) & (df.index < todate)
+    df_date = df.loc[mask]
 
-###  Split dataset on train and test
+    ###  Select variables to model
+    df_var = df_date.loc[:,columns] 
+
+    ###  Split dataset on train and test
+    X_train = df_var.iloc[0:int(df_var.shape[0]*split_percent):step_hours]
+    X_test = df_var.iloc[int(df_var.shape[0]*split_percent):df_var.shape[0]:step_hours]
+    return X_train,X_test
+
+
+"""
 x_train = df_var.iloc[0:int(df_var.shape[0]*split_percent)-2*step_hours:step_hours]
 y_train = pd.DataFrame(df_var.loc[:,columns[0]].iloc[step_hours:int(df_var.shape[0]*split_percent)-1*step_hours:step_hours])
 x_test = df_var.iloc[int(df_var.shape[0]*split_percent)-1*step_hours:df_var.shape[0]-2*step_hours:step_hours]
 y_test = pd.DataFrame(df_var.loc[:,columns[0]].iloc[int(df_var.shape[0]*split_percent):df_var.shape[0]-1*step_hours:step_hours])
 """
-mean_x = x_train.mean(axis=0)
-std_x = x_train.std(axis=0)
-x_train = (x_train - mean_x) / std_x
-x_test = (x_test - mean_x) / std_x
 
-mean_y = y_train.mean(axis=0)
-std_y = y_train.std(axis=0)
-y_train = (y_train - mean_y) / std_y
-y_test = (y_test - mean_y) / std_y
+### Splitted dataset
+print("Read and splitting dataset...")
+[X_train, X_test] = read_and_split(fromdate,todate,columns,split_percent,step_hours)
 
-"""
-if norm:
-    max_x = x_train.max(axis=0)
-    min_x = x_train.min(axis=0)
-    x_train = (x_train - min_x) / (max_x-min_x)
-    x_test = (x_test - min_x) / (max_x-min_x)
-    #x_train = normalize(x_train,min_x,max_x)
-    #x_test = normalize(x_test,min_x,max_x)
+def datasetWithRegressors(number_regressor,X_train,X_test):
+    x_train_dict = {}
+    x_test_dict = {}
+    for i in range(number_regressor):
+        x_train_t = X_train.iloc[i:X_train.shape[0]-number_regressor+i].add_suffix('(t-'+str(number_regressor-i)+')')
+        x_train_t_dict = x_train_t.to_dict()
+        x_train_dict = {**x_train_dict, **x_train_t_dict} 
 
-    max_y = y_train.max(axis=0)
-    min_y = y_train.min(axis=0)
-    y_train = (y_train - min_y) / (max_y-min_y)
-    y_test = (y_test - min_y) / (max_y-min_y)
-    #y_train = normalize(y_train,min_y,max_y)
-    #y_test = normalize(y_test,min_y,max_y)
+        x_test_t = X_test.iloc[i:X_test.shape[0]-number_regressor+i].add_suffix('(t-'+str(number_regressor-i)+')')
+        x_test_t_dict = x_test_t.to_dict()
+        x_test_dict = {**x_test_dict, **x_test_t_dict} 
+    df_x_train = pd.DataFrame(x_train_dict)
+    df_x_test = pd.DataFrame(x_test_dict)
+    df_y_train = pd.DataFrame(X_train.loc[:,columns[0]].iloc[number_regressor:X_train.shape[0]])
+    df_y_test = pd.DataFrame(X_test.loc[:,columns[0]].iloc[number_regressor:X_test.shape[0]])
+    return df_x_train, df_x_test, df_y_train, df_y_test
 
+### Dataset with Regressors
+print("Creating dataset with regressors...")
+[df_x_train,df_x_test,df_y_train,df_y_test] = datasetWithRegressors(number_regressor,X_train,X_test)
+
+### Clean columns with NaN values and convert to numpy array
+def clean_and_convert(df_x_train,df_x_test,df_y_train,df_y_test):
+    df1_x_train = df_x_train.apply(lambda x: pd.Series(x.dropna().values))
+    df1_x_test = df_x_test.apply(lambda x: pd.Series(x.dropna().values))
+    #df1_y_train = df_y_train
+    #df1_y_test = df_y_test
+    x_train = df1_x_train.values
+    x_test = df1_x_test.values
+    y_train = df_y_train.values
+    y_test = df_y_test.values
+    return x_train, x_test, y_train, y_test
+
+### Cleaned dataset on numpy array
+print("Cleaning dataset and transform to numpy array...")
+[x_train, x_test, y_train, y_test] = clean_and_convert(df_x_train,df_x_test,df_y_train,df_y_test)
+
+def normalize_dataset(norm,x_train, x_test, y_train, y_test):
+    if norm:
+        max_x = x_train.max(axis=0)
+        min_x = x_train.min(axis=0)
+        x_train = (x_train - min_x) / (max_x-min_x)
+        x_test = (x_test - min_x) / (max_x-min_x)
+        #x_train = normalize(x_train,min_x,max_x)
+        #x_test = normalize(x_test,min_x,max_x)
+
+        max_y = y_train.max(axis=0)
+        min_y = y_train.min(axis=0)
+        y_train = (y_train - min_y) / (max_y-min_y)
+        y_test = (y_test - min_y) / (max_y-min_y)
+        #y_train = normalize(y_train,min_y,max_y)
+        #y_test = normalize(y_test,min_y,max_y)
+        """
+        mean_x = x_train.mean(axis=0)
+        std_x = x_train.std(axis=0)
+        x_train = (x_train - mean_x) / std_x
+        x_test = (x_test - mean_x) / std_x
+
+        mean_y = y_train.mean(axis=0)
+        std_y = y_train.std(axis=0)
+        y_train = (y_train - mean_y) / std_y
+        y_test = (y_test - mean_y) / std_y
+        """
+    return x_train, x_test, y_train, y_test,max_x,min_x,max_y,min_y
+
+print("Normalizing dataset...")
+[x_train, x_test, y_train, y_test, max_x, min_x, max_y, min_y] = normalize_dataset(norm, x_train, x_test, y_train, y_test)
+    
 
 
 ###   If you want a default splitting uncomment the following lines
@@ -218,10 +245,11 @@ import tensorflow as tf
 ######################## Set learning variables ##################
 learning_rate = 0.0005 #0.0005
 epochs = 100
-batch_size = 100
+batch_size = 10000
 #n_hidden_1 = 1000
 
 ######################## Set some variables #######################
+print("Setting variables for the Regression...")
 x = tf.placeholder(tf.float32, [None, x_train.shape[1]], name='x')  # features
 y = tf.placeholder(tf.float32, [None, 1], name='y')  # 1 output
 
@@ -242,7 +270,7 @@ def kezhNet(input_data):
         with tf.name_scope('hidden_3'):
             #bn1_3 = tf.layers.batch_normalization(act_fc2)
             bn1_3 = act_fc2
-            fc3 = tf.layers.dense(inputs=bn1_3,units=25)
+            fc3 = tf.layers.dense(inputs=bn1_3,units=1000)
             act_fc3 = tf.nn.relu(fc3)
             
         with tf.name_scope('hidden_4'):
@@ -282,40 +310,45 @@ epoch_time = []
 with tf.Session() as sess:
     sess.run(init_op)
     t = time.clock()
-    total_batch = int(len(y_train) / batch_size)
+    #total_batch = int(len(y_train) / batch_size)
     print("Start Training...")
     for epoch in range(epochs):
         avg_cost = 0
         epoch_loss = []
         t_epoch = time.clock()
-        for i in range(total_batch):
-            batch_x  = x_train.values[i * batch_size:min(i * batch_size + batch_size, len(x_train)), :]
-            batch_y = y_train.values[i * batch_size:min(i * batch_size + batch_size, len(y_train)), :]
-            _, l = sess.run([optimizer, mse], feed_dict={x: batch_x, y: batch_y})
-            epoch_loss.append(l)
+        #while True:
+        #    try:
+        #for i in range(total_batch):
+            #batch_x  = x_train[i * batch_size:min(i * batch_size + batch_size, len(x_train)), :]
+            #batch_y = y_train[i * batch_size:min(i * batch_size + batch_size, len(y_train)), :]
+            #_, l = sess.run([optimizer, mse], feed_dict={x: batch_x, y: batch_y})
+        _, l = sess.run([optimizer, mse],feed_dict={x: x_train, y: y_train})
+        epoch_loss.append(l)
         if epoch % 10 == 0:
+            #except tf.errors.OutOfRangeError:
             elapsed_time = time.clock() - t_epoch
             epoch_time.append(elapsed_time)
             avg_loss = np.mean(epoch_loss)
             train_loss.append(avg_loss)
             print("Epoch: {} | Loss: {:.3f} | Elapsed Time: {:.2f} minutes".format(epoch + 1, avg_loss, elapsed_time / 60))
     print("Training Finished! Elapsed Time: {:.2f} minutes".format((time.clock() - t) / 60))
-    pred_f = sess.run(y_, feed_dict={x: x_test})
-    df_pred = pd.DataFrame(pred_f,index=y_test.index.values,columns=["DST_Index"])    
+    pred = sess.run(y_, feed_dict={x: x_test})
+    
+    df_pred = pd.DataFrame(pred,index=df_y_test.index.values,columns=["DST_Index"])    
+    #df_y_test_final = pd.DataFrame(y_test,index=df_y_test.index.values,columns=["DST_Index"])    
     if norm:
         #y_test_final = std_y.values*y_test+mean_y.values
-        y_test_final = y_test*(max_y.values-min_y.values)+min_y.values
-
-        #df_predic_final = std_y.values*df_pred+mean_y.values
-        df_pred_final = df_pred*(max_y.values-min_y.values)+min_y.values
+        #y_test_final = y_test*(max_y-min_y)+min_y
+        #df_pred_final = std_y.values*df_pred+mean_y.values
+        df_pred_final = df_pred*(max_y-min_y)+min_y
     else:
-        y_test_final = y_test
+        #y_test_final = y_test
         df_pred_final = df_pred
         
     # Prediction
     pred_fig = plt.figure()
-    pred_title = 'Prediction '+str(step_hours)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'
-    plt.plot(y_test_final,label="Original Data")
+    pred_title = 'Prediction '+str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'
+    plt.plot(df_y_test,label="Original Data")
     plt.plot(df_pred_final,label="Predicted Data")
     plt.xlabel('Time')
     plt.ylabel('DST Index')
@@ -325,7 +358,7 @@ with tf.Session() as sess:
 
     # Train Loss
     loss_fig = plt.figure()
-    loss_title = 'Model Train Loss '+str(step_hours)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    loss_title = 'Model Train Loss '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
     plt.plot(range(1, len(train_loss) + 1), train_loss)
     plt.title(loss_title)
     plt.xlabel('Epoch')
@@ -335,9 +368,9 @@ with tf.Session() as sess:
 
     # Error Histogram
     hist_fig, ax = plt.subplots()
-    error = abs(df_pred_final - y_test_final)
+    error = abs(df_pred_final - df_y_test)
     error.hist(bins=50,ax=ax)
-    hist_title = 'Distribution Error '+str(step_hours)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    hist_title = 'Distribution Error '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
     plt.title(hist_title)
     plt.xlabel("Prediction Error")
     plt.ylabel("Count")
