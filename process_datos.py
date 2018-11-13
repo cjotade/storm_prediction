@@ -14,7 +14,7 @@ import graphviz
 import pydotplus
 from itertools import *
 import time
-
+import tensorflow as tf
 
 __author__ = "Camilo Jara Do Nascimento"
 __email__ = "camilo.jara@ug.uchile.cl"
@@ -48,16 +48,21 @@ fromdate = "1963-1-1 01"
 todate = "" 
 #todate = "2017-1-1 01"
 
-#columns = ["DST_Index"] 
-columns = ["DST_Index","Electric_field","Bz_GSM","Flow_Pressure"]
+columns = ["DST_Index"] 
+#columns = ["DST_Index","Electric_field","Bz_GSM","Flow_Pressure"]
 
 split_percent = 0.6
 
 step_hours = 1
 
-number_regressor = 3
+number_regressor = 1
 
 norm = False
+
+learning_rate = 0.0005 #0.0005
+
+epochs = 200
+
 
 ##################################################################
 #################                                #################            
@@ -111,17 +116,19 @@ y_test = pd.DataFrame(df_var.loc[:,columns[0]].iloc[int(df_var.shape[0]*split_pe
 print("Read and splitting dataset...")
 [X_train, X_test] = read_and_split(fromdate,todate,columns,split_percent,step_hours)
 
-def datasetWithRegressors(number_regressor,X_train,X_test):
+def datasetWithRegressors(number_regressor,X_train,X_test,columns):
     x_train_dict = {}
     x_test_dict = {}
     for i in range(number_regressor):
+        # Create train dict from regressors
         x_train_t = X_train.iloc[i:X_train.shape[0]-number_regressor+i].add_suffix('(t-'+str(number_regressor-i)+')')
         x_train_t_dict = x_train_t.to_dict()
         x_train_dict = {**x_train_dict, **x_train_t_dict} 
-
+        # Create test dict from regressors
         x_test_t = X_test.iloc[i:X_test.shape[0]-number_regressor+i].add_suffix('(t-'+str(number_regressor-i)+')')
         x_test_t_dict = x_test_t.to_dict()
         x_test_dict = {**x_test_dict, **x_test_t_dict} 
+    # Dicts to DataFrame
     df_x_train = pd.DataFrame(x_train_dict)
     df_x_test = pd.DataFrame(x_test_dict)
     df_y_train = pd.DataFrame(X_train.loc[:,columns[0]].iloc[number_regressor:X_train.shape[0]])
@@ -130,14 +137,14 @@ def datasetWithRegressors(number_regressor,X_train,X_test):
 
 ### Dataset with Regressors
 print("Creating dataset with regressors...")
-[df_x_train,df_x_test,df_y_train,df_y_test] = datasetWithRegressors(number_regressor,X_train,X_test)
+[df_x_train,df_x_test,df_y_train,df_y_test] = datasetWithRegressors(number_regressor,X_train,X_test,columns)
 
 ### Clean columns with NaN values and convert to numpy array
 def clean_and_convert(df_x_train,df_x_test,df_y_train,df_y_test):
+    # Drop nan values for every column
     df1_x_train = df_x_train.apply(lambda x: pd.Series(x.dropna().values))
     df1_x_test = df_x_test.apply(lambda x: pd.Series(x.dropna().values))
-    #df1_y_train = df_y_train
-    #df1_y_test = df_y_test
+    # Convert DataFrame to array
     x_train = df1_x_train.values
     x_test = df1_x_test.values
     y_train = df_y_train.values
@@ -176,20 +183,9 @@ def normalize_dataset(norm,x_train, x_test, y_train, y_test):
         """
     return x_train, x_test, y_train, y_test, max_x, min_x, max_y, min_y
 
-print("Normalizing dataset...")
+print("Normalizing dataset = " + str(norm) + "...")
 [x_train, x_test, y_train, y_test, max_x, min_x, max_y, min_y] = normalize_dataset(norm, x_train, x_test, y_train, y_test)
     
-
-
-###   If you want a default splitting uncomment the following lines
-#X_dataset = df_var.iloc[0:df_var.shape[0]-2]
-#Y_dataset = df_var.iloc[1:df_var.shape[0]-1]
-#x_train, x_test, y_train, y_test = train_test_split(X_dataset,Y_dataset, test_size = 0.40, random_state=42)
-
-###   Delete some variables to save RAM
-#del df
-#del X_dataset
-#del Y_dataset
 
 """
 #   Code that can be necessary later
@@ -239,14 +235,7 @@ plt.show()
 #grafico = plot_learning_curve(nn, title, x_test, y_test, cv=10)
 #plt.show()
 """
-######################### Import stuff ##########################
-import tensorflow as tf
 
-######################## Set learning variables ##################
-learning_rate = 0.0005 #0.0005
-epochs = 500
-#batch_size = 10000
-#n_hidden_1 = 1000
 
 ######################## Set some variables #######################
 print("Setting variables for the Regression...")
@@ -333,71 +322,84 @@ with tf.Session() as sess:
     
     df_pred = pd.DataFrame(pred,index=df_y_test.index.values,columns=["DST_Index"])    
     
-    ### Denormalize
+    ### Denormalize and calculate error
     if norm:
         #df_pred_final = std_y.values*df_pred+mean_y.values
         df_pred_final = df_pred*(max_y-min_y)+min_y
+        #error = abs(df_pred_final - ((df_y_test* min_y)/(max_y-min_y)))
     else:
         df_pred_final = df_pred
-           
+        #error = abs(df_pred_final - df_y_test)
+
     error = abs(df_pred_final - df_y_test)
     acc = np.mean((df_pred.values-y_test)**2)
     acc_denorm = np.mean((error)**2)
     # Prediction
     pred_fig = plt.figure()
-    pred_title = 'Prediction '+str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'
+    pred_title = 'Prediction '+str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
     plt.plot(df_y_test,label="Original Data")
     plt.plot(df_pred_final,label="Predicted Data")
     plt.xlabel('Time')
     plt.ylabel('DST Index')
     plt.title(pred_title)
     plt.legend()
-    pred_fig.savefig("./results/plots/"+pred_title+".png", bbox_inches='tight')
+    pred_fig.savefig("./results/"+pred_title+" norm="+str(norm)+".png", bbox_inches='tight')
+
+    # Prediction
+    pred_time_fig = plt.figure()
+    pred_time_title = 'Prediction zoom '+str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
+    plt.plot(df_y_test.iloc[0:100,:],label="Original Data")
+    plt.plot(df_pred_final.iloc[0:100,:],label="Predicted Data")
+    plt.xlabel('Time')
+    plt.ylabel('DST Index')
+    plt.title(pred_time_title)
+    plt.legend()
+    pred_fig.savefig("./results/"+pred_time_title+" norm="+str(norm)+".png", bbox_inches='tight')
 
     # Train Loss
     loss_fig = plt.figure()
-    loss_title = 'Model Train Loss '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    loss_title = 'Model Train Loss '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
     plt.plot(range(1, len(train_loss) + 1), train_loss)
     plt.title(loss_title)
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend(['kezhNet'])
-    loss_fig.savefig("./results/plots/"+loss_title+".png", bbox_inches='tight')
+    loss_fig.savefig("./results/"+loss_title+" norm="+str(norm)+".png", bbox_inches='tight')
 
     # Error Histogram
     hist_fig, ax = plt.subplots()
     error.hist(bins=50,ax=ax)
-    hist_title = 'Distribution Error '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    hist_title = 'Distribution Error '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
     plt.title(hist_title)
     plt.xlabel("Prediction Error")
     plt.ylabel("Count")
     plt.xlim(0,np.max(error).values)
-    hist_fig.savefig("./results/plots/"+hist_title+".png", bbox_inches='tight')
+    hist_fig.savefig("./results/"+hist_title+" norm="+str(norm)+".png", bbox_inches='tight')
 
     # Error on time
     error_fig, ax = plt.subplots()
     plt.plot(error,label="Error")
-    error_title = 'Error on time '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    error_title = 'Error on time '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
     plt.title(error_title)
     plt.xlabel("Time")
     plt.ylabel("Error")
-    error_fig.savefig("./results/plots/"+error_title+".png", bbox_inches='tight')
+    error_fig.savefig("./results/"+error_title+" norm="+str(norm)+".png", bbox_inches='tight')
 
-    """ 
-    error_2 = error**2
-    error_acum = []
-    for i in range(1,len(error)):
-        error_acum.append(1/(i+1)*np.sum(error.iloc[0:i]))
-    df_error_acum = pd.DataFrame([error_acum],index=error.index.values)
+    
+    ### Cumulative Mean-Square Error
+    error2 = error**2
+    df_error_acum = error2.expanding(min_periods=1).mean()
     error_acum_fig, ax = plt.subplots()
-    plt.plot(error,label="Cumulative Error")
-    error_title = 'Cumulative error on time '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'
+    plt.plot(df_error_acum,label="Cumulative Mean-Square Error")
+    error_title = 'Cumulative Mean-Square Error on time '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
     plt.title(error_title)
     plt.xlabel("Time")
-    plt.ylabel("Cumulative Error")
-    error_acum_fig.savefig("./results/plots/"+error_title+".png", bbox_inches='tight')
-    """
+    plt.ylabel("Cumulative Mean-Square Error")
+    error_acum_fig.savefig("./results/"+error_title+".png", bbox_inches='tight')
+    
     print("Accuracy Test (MSE): ", acc,acc_denorm.values[0])
+
+
 
     plt.show()
 
