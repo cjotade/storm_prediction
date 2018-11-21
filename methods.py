@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.dates as mdates
 from sklearn.model_selection import learning_curve
 from sklearn.metrics import classification_report,confusion_matrix
 from sklearn.model_selection import train_test_split,cross_val_predict,validation_curve
@@ -224,6 +225,17 @@ def MLP(x_train,y_train,x_test,y_test,df_y_test,max_y,min_y,learning_rate,epochs
         acc = np.mean((df_pred.values-y_test)**2)
         acc_denorm = np.mean((error)**2)
 
+        # Calc max and min in order to zoom
+        maxs_y_test = df_y_test.nlargest(20,"DST_Index")
+        mins_y_test = df_y_test.nsmallest(20,"DST_Index")
+        ds_max_all = maxs_y_test.index
+        ds_min_all = mins_y_test.index
+        idx_all = []
+        for ds_max in ds_max_all:
+            idx_all.append(df_y_test.index.get_loc(ds_max))
+        for ds_min in ds_min_all:
+            idx_all.append(df_y_test.index.get_loc(ds_min))
+            
         # Prediction
         pred_fig = plt.figure()
         pred_title = 'Prediction '+str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
@@ -234,7 +246,22 @@ def MLP(x_train,y_train,x_test,y_test,df_y_test,max_y,min_y,learning_rate,epochs
         plt.title(pred_title)
         plt.legend()
         pred_fig.savefig("./results/plots/"+pred_title+" norm="+str(norm)+".png", bbox_inches='tight')
-
+        
+        # Prediction zoom
+        i = 0
+        for idx in idx_all:
+            pred_time_fig, ax = plt.subplots()
+            pred_time_title = 'Prediction zoom '+ str(i) + " " + str(number_regressor)+'-step ahead with MLPRegressor using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
+            ax.plot(df_y_test.iloc[idx-100:idx+100,:].index.astype('O'),df_y_test.iloc[idx-100:idx+100,:],label="Original Data")
+            ax.plot(df_pred_final.iloc[idx-100:idx+100,:].index.astype('O'),df_pred_final.iloc[idx-100:idx+100,:],label="Predicted Data")
+            pred_time_fig.autofmt_xdate()
+            ax.fmt_xdata = mdates.DateFormatter('%Y-%m-%d')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('DST Index')
+            ax.set_title(pred_time_title)
+            ax.legend()
+            pred_time_fig.savefig("./results/zoom/"+pred_time_title+" norm="+str(norm)+".png", bbox_inches='tight')
+            i += 1
         # Train Loss
         loss_fig = plt.figure()
         loss_title = 'Model Train Loss '+str(number_regressor)+'-step ahead using ' + ', '.join(columns) + ' as variables'+", norm="+str(norm)
